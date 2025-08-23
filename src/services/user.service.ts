@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { User, Prisma } from '@prisma/client';
+import { User } from '@prisma/client';
+import { CreateUserDto } from '../dto/create-user.dto';
+import { Prisma } from '@prisma/client';
+import { randomBytes, scryptSync } from 'crypto';
 
 @Injectable()
 export class UsersService {
@@ -31,10 +34,31 @@ export class UsersService {
     });
   }
 
-  async createUser(data: Prisma.UserCreateInput): Promise<User> {
-    return this.prisma.user.create({
-      data,
-    });
+  async createUser(dto: CreateUserDto): Promise<User> {
+    const { name, email, password } = dto;
+    const salt = randomBytes(16).toString('hex');
+    const derived = scryptSync(password, salt, 64).toString('hex');
+    const hashed = `${salt}:${derived}`;
+
+    try {
+      // Cast data to any to avoid stale Prisma client typings if client wasn't regenerated yet.
+      return await this.prisma.user.create({
+        data: {
+          name,
+          email,
+          password: hashed,
+        } as any,
+      });
+    } catch (err) {
+      // Map prisma unique constraint error to a friendly message
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException('Email already in use');
+      }
+      throw err;
+    }
   }
 
   async updateUser(params: {

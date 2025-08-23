@@ -12,7 +12,8 @@ model User {
   id    Int     @default(autoincrement()) @id
   email String  @unique
   name  String?
-  tasks Task[]
+  password String
+  tasks Task[]?
 }
 
 model Task {
