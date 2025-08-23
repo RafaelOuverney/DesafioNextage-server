@@ -66,8 +66,14 @@ export class UsersService {
     data: Prisma.UserUpdateInput;
   }): Promise<User> {
     const { where, data } = params;
+    const payload: any = { ...data };
+    if (payload.password) {
+      const salt = randomBytes(16).toString('hex');
+      const derived = scryptSync(String(payload.password), salt, 64).toString('hex');
+      payload.password = `${salt}:${derived}`;
+    }
     return this.prisma.user.update({
-      data,
+      data: payload,
       where,
     });
   }
