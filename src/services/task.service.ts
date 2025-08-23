@@ -6,6 +6,7 @@ export interface CreateTaskDto {
   title: string;
   content?: string | null;
   authorEmail: string;
+  columnId?: number; // optional: attach to an existing column
 }
 @Injectable()
 export class TasksService {
@@ -14,6 +15,12 @@ export class TasksService {
   async task(
     taskWhereUniqueInput: Prisma.TaskWhereUniqueInput,
   ): Promise<Task | null> {
+    // guard: ensure a valid unique identifier is provided to avoid Prisma validation errors
+    const maybeId = (taskWhereUniqueInput as any)?.id;
+    if (typeof maybeId === 'undefined' || maybeId === null) {
+      // return null for missing id instead of calling prisma with an invalid where input
+      return null;
+    }
     return this.prisma.task.findUnique({
       where: taskWhereUniqueInput,
     });
@@ -37,16 +44,46 @@ export class TasksService {
   }
 
   async createTask(data: CreateTaskDto): Promise<Task> {
-    return this.prisma.task.create({
-      data: {
-        title: data.title,
-        content: data.content,
-        author: {
-          connect: { email: data.authorEmail },
-        },
-        finished: false,
-      },
-    });
+    const p = this.prisma as any;
+
+    // find author (if exists)
+    const author = await p.user.findUnique({ where: { email: data.authorEmail } }).catch(() => null);
+
+    // try to use provided columnId if valid and owned by the author
+    let columnToUse: any = null;
+    if (data.columnId) {
+      columnToUse = await p.columns.findUnique({ where: { id: Number(data.columnId) } }).catch(() => null);
+      if (columnToUse && author && columnToUse.ownerId && columnToUse.ownerId !== author.id) {
+        // provided column doesn't belong to this user -> ignore it
+        columnToUse = null;
+      }
+    }
+
+    // if no valid column chosen, find one owned by the author or create default 'A Fazer'
+    if (!columnToUse) {
+      if (author) {
+        columnToUse = await p.columns.findFirst({ where: { ownerId: author.id } });
+        if (!columnToUse) {
+          columnToUse = await p.columns.create({ data: { title: 'A Fazer', owner: { connect: { id: author.id } } } });
+        }
+      } else {
+        // no author (anonymous) -> try any column, otherwise create a default global column
+        columnToUse = await p.columns.findFirst();
+        if (!columnToUse) {
+          columnToUse = await p.columns.create({ data: { title: 'A Fazer' } });
+        }
+      }
+    }
+
+    const createData: any = {
+      title: data.title,
+      content: data.content ?? null,
+      author: { connect: { email: data.authorEmail } },
+      column: { connect: { id: columnToUse.id } },
+      finished: false,
+    };
+
+    return p.task.create({ data: createData });
   }
 
 

@@ -13,7 +13,8 @@ model User {
   email String  @unique
   name  String?
   password String
-  tasks Task[]?
+  tasks Task[]
+  columns Columns[]
 }
 
 model Task {
@@ -22,6 +23,16 @@ model Task {
   content   String?
   author    User?    @relation(fields: [authorId], references: [id])
   authorId  Int?
+  column Columns @relation(fields: [columnId], references: [id])
+  columnId Int
   finished Boolean
   createdAt DateTime @default(now())
+}
+
+model Columns{
+  id Int @default(autoincrement()) @id
+  title String
+  tasks Task[]
+  owner User? @relation(fields: [ownerId], references: [id])
+  ownerId Int?
 }
